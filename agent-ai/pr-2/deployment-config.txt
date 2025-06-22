@@ -1,0 +1,514 @@
+# Docker Compose Configuration
+# docker-compose.yml
+
+version: '3.8'
+
+services:
+  # 主Agent系统服务
+  agent-system:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: local-agent-system
+    environment:
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - QWEN_API_KEY=${QWEN_API_KEY}
+      - WORKSPACE_DIR=/app/workspace
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./workspace:/app/workspace
+      - ./logs:/app/logs
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw  # For GUI apps
+    ports:
+      - "8000:8000"  # API端口
+      - "8501:8501"  # Streamlit UI端口
+    networks:
+      - agent-network
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+    # 对于浏览器自动化，需要特殊权限
+    privileged: true
+    shm_size: '2gb'
+    
+  # Redis用于任务队列和缓存
+  redis:
+    image: redis:7-alpine
+    container_name: agent-redis
+    volumes:
+      - redis-data:/data
+    networks:
+      - agent-network
+    restart: unless-stopped
+    
+  # PostgreSQL用于持久化存储
+  postgres:
+    image: postgres:15-alpine
+    container_name: agent-postgres
+    environment:
+      - POSTGRES_USER=agent
+      - POSTGRES_PASSWORD=agent_pass
+      - POSTGRES_DB=agent_system
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - agent-network
+    restart: unless-stopped
+    
+  # 本地DeepSeek-Coder服务（使用Ollama）
+  deepseek-local:
+    image: ollama/ollama:latest
+    container_name: deepseek-local
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - agent-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+              
+networks:
+  agent-network:
+    driver: bridge
+    
+volumes:
+  redis-data:
+  postgres-data:
+  ollama-data:
+
+---
+# Dockerfile
+
+FROM python:3.11-slim
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    # 基础工具
+    curl \
+    wget \
+    git \
+    vim \
+    # 浏览器自动化依赖
+    chromium \
+    chromium-driver \
+    # GUI自动化依赖
+    python3-tk \
+    python3-dev \
+    xvfb \
+    x11vnc \
+    fluxbox \
+    # OCR依赖
+    tesseract-ocr \
+    tesseract-ocr-chi-sim \
+    tesseract-ocr-eng \
+    # 图像处理
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    # 清理
+    && rm -rf /var/lib/apt/lists/*
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制依赖文件
+COPY requirements.txt .
+
+# 安装Python依赖
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 复制应用代码
+COPY . .
+
+# 创建必要的目录
+RUN mkdir -p /app/workspace /app/logs /app/data
+
+# 设置环境变量
+ENV DISPLAY=:99
+ENV PYTHONPATH=/app
+
+# 启动脚本
+COPY docker-entrypoint.sh /
+RUN chmod +x /docker-entrypoint.sh
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["python", "main.py"]
+
+---
+# requirements.txt
+
+# 核心依赖
+aiohttp==3.9.1
+asyncio==3.4.3
+pydantic==2.5.0
+python-dotenv==1.0.0
+
+# LLM相关
+anthropic==0.25.0
+openai==1.40.0
+langchain==0.1.0
+langchain-community==0.0.10
+langgraph==0.0.26
+
+# 浏览器自动化
+playwright==1.40.0
+selenium==4.15.0
+beautifulsoup4==4.12.2
+
+# 系统自动化
+pyautogui==0.9.54
+keyboard==0.13.5
+mouse==0.7.1
+mss==9.0.1
+Pillow==10.1.0
+
+# 图像处理和OCR
+opencv-python==4.8.1.78
+pytesseract==0.3.10
+numpy==1.24.3
+
+# 数据库
+redis==5.0.1
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+alembic==1.12.1
+
+# Web框架
+fastapi==0.104.1
+uvicorn==0.24.0
+streamlit==1.28.2
+gradio==4.7.1
+
+# 工具
+pyyaml==6.0.1
+click==8.1.7
+rich==13.7.0
+loguru==0.7.2
+
+# 监控
+prometheus-client==0.19.0
+psutil==5.9.6
+
+# 测试
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+
+# Windows特定依赖（可选）
+# pywin32==306  # Windows only
+
+---
+# docker-entrypoint.sh
+
+#!/bin/bash
+
+# 启动虚拟显示器（用于无头环境的GUI操作）
+if [ "$DISPLAY" = ":99" ]; then
+    Xvfb :99 -screen 0 1920x1080x24 &
+    sleep 2
+    fluxbox &
+    x11vnc -display :99 -nopw -listen localhost -xkb -forever &
+fi
+
+# 等待数据库就绪
+echo "Waiting for PostgreSQL..."
+while ! nc -z postgres 5432; do
+    sleep 1
+done
+echo "PostgreSQL is ready!"
+
+echo "Waiting for Redis..."
+while ! nc -z redis 6379; do
+    sleep 1
+done
+echo "Redis is ready!"
+
+# 运行数据库迁移
+alembic upgrade head
+
+# 下载DeepSeek-Coder模型到本地Ollama（如果配置了）
+if [ "$USE_LOCAL_DEEPSEEK" = "true" ]; then
+    echo "Pulling DeepSeek-Coder model..."
+    curl -X POST http://deepseek-local:11434/api/pull -d '{"name": "deepseek-coder:6.7b"}'
+fi
+
+# 安装Playwright浏览器
+playwright install chromium
+
+# 启动应用
+exec "$@"
+
+---
+# .env.example
+
+# API Keys
+CLAUDE_API_KEY=your_claude_api_key_here
+DEEPSEEK_API_KEY=your_deepseek_api_key_here  # 可选，留空使用本地模型
+QWEN_API_KEY=your_qwen_api_key_here
+
+# Model Configuration
+CLAUDE_MODEL=claude-opus-4-20250514
+DEEPSEEK_MODEL=deepseek-coder
+QWEN_MODEL=qwen-plus
+
+# System Configuration
+WORKSPACE_DIR=./workspace
+LOG_LEVEL=INFO
+USE_LOCAL_DEEPSEEK=true
+
+# Database Configuration
+POSTGRES_USER=agent
+POSTGRES_PASSWORD=agent_pass
+POSTGRES_DB=agent_system
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_DB=0
+
+# Cost Limits (in USD)
+MAX_COST_PER_REQUEST=2.0
+MAX_DAILY_COST=100.0
+
+# Performance Settings
+MAX_AGENTS=10
+MAX_CONCURRENT_TASKS=5
+TASK_TIMEOUT=300  # seconds
+
+# Security
+ENABLE_SANDBOX=true
+ALLOWED_COMMANDS=ls,pwd,echo,cat,grep,find
+BLOCKED_PATHS=/etc,/sys,/proc
+
+---
+# Kubernetes配置 (k8s-deployment.yaml)
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-system
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-config
+  namespace: agent-system
+data:
+  LOG_LEVEL: "INFO"
+  WORKSPACE_DIR: "/app/workspace"
+  USE_LOCAL_DEEPSEEK: "true"
+  
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: agent-secrets
+  namespace: agent-system
+type: Opaque
+stringData:
+  CLAUDE_API_KEY: "your_claude_api_key"
+  DEEPSEEK_API_KEY: "your_deepseek_api_key"
+  QWEN_API_KEY: "your_qwen_api_key"
+  
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-system
+  namespace: agent-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-system
+  template:
+    metadata:
+      labels:
+        app: agent-system
+    spec:
+      containers:
+      - name: agent-system
+        image: local-agent-system:latest
+        ports:
+        - containerPort: 8000
+          name: api
+        - containerPort: 8501
+          name: ui
+        envFrom:
+        - configMapRef:
+            name: agent-config
+        - secretRef:
+            name: agent-secrets
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "8Gi"
+            cpu: "4000m"
+        volumeMounts:
+        - name: workspace
+          mountPath: /app/workspace
+        - name: logs
+          mountPath: /app/logs
+      volumes:
+      - name: workspace
+        persistentVolumeClaim:
+          claimName: workspace-pvc
+      - name: logs
+        persistentVolumeClaim:
+          claimName: logs-pvc
+          
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-system-service
+  namespace: agent-system
+spec:
+  selector:
+    app: agent-system
+  ports:
+  - name: api
+    port: 8000
+    targetPort: 8000
+  - name: ui
+    port: 8501
+    targetPort: 8501
+  type: LoadBalancer
+
+---
+# 部署脚本 (deploy.sh)
+
+#!/bin/bash
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo -e "${GREEN}🚀 Local Agent System Deployment Script${NC}"
+
+# 检查依赖
+check_dependencies() {
+    echo -e "${YELLOW}Checking dependencies...${NC}"
+    
+    dependencies=("docker" "docker-compose" "git")
+    for dep in "${dependencies[@]}"; do
+        if ! command -v $dep &> /dev/null; then
+            echo -e "${RED}❌ $dep is not installed${NC}"
+            exit 1
+        else
+            echo -e "${GREEN}✅ $dep is installed${NC}"
+        fi
+    done
+}
+
+# 配置环境
+setup_environment() {
+    echo -e "${YELLOW}Setting up environment...${NC}"
+    
+    if [ ! -f .env ]; then
+        cp .env.example .env
+        echo -e "${YELLOW}⚠️  Please edit .env file with your API keys${NC}"
+        exit 1
+    fi
+    
+    # 创建必要的目录
+    mkdir -p workspace logs data
+}
+
+# 构建镜像
+build_images() {
+    echo -e "${YELLOW}Building Docker images...${NC}"
+    docker-compose build
+}
+
+# 启动服务
+start_services() {
+    echo -e "${YELLOW}Starting services...${NC}"
+    docker-compose up -d
+    
+    # 等待服务就绪
+    echo -e "${YELLOW}Waiting for services to be ready...${NC}"
+    sleep 10
+    
+    # 检查服务状态
+    docker-compose ps
+}
+
+# 主函数
+main() {
+    check_dependencies
+    setup_environment
+    build_images
+    start_services
+    
+    echo -e "${GREEN}✅ Deployment completed!${NC}"
+    echo -e "${GREEN}Access the system at:${NC}"
+    echo -e "  - API: http://localhost:8000"
+    echo -e "  - UI: http://localhost:8501"
+    echo -e "  - Docs: http://localhost:8000/docs"
+}
+
+# 运行主函数
+main
+
+---
+# 性能优化配置 (performance.yaml)
+
+performance:
+  # 模型选择策略
+  model_selection:
+    simple_tasks:
+      primary: deepseek-local  # 本地模型，无成本
+      fallback: qwen  # API成本低
+    complex_tasks:
+      primary: claude  # 最强能力
+      fallback: qwen  # 成本平衡
+      
+  # 缓存策略
+  caching:
+    enable: true
+    ttl: 3600  # 1小时
+    max_size: 1000  # 最大缓存条目
+    
+  # 并发控制
+  concurrency:
+    max_agents: 5
+    max_tasks_per_agent: 3
+    queue_size: 100
+    
+  # 成本控制
+  cost_control:
+    max_cost_per_task: 0.5
+    max_cost_per_hour: 10.0
+    alert_threshold: 0.8  # 80%时告警
+    
+  # 资源限制
+  resource_limits:
+    max_memory_per_agent: "1Gi"
+    max_cpu_per_agent: "1000m"
+    task_timeout: 300  # 5分钟
+    
+  # 批处理优化
+  batching:
+    enable: true
+    batch_size: 10
+    batch_timeout: 5  # 秒

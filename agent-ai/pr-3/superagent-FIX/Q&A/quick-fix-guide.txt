@@ -1,0 +1,58 @@
+Agent协作系统 - 快速修复指南
+============================
+
+最快修复方法（30秒搞定）：
+--------------------------
+
+1. 保存这个文件：fix_and_run.py
+2. 运行命令：python fix_and_run.py
+3. 选择 'y' 立即启动系统
+
+就这么简单！
+
+
+如果上面的方法不行，试试这个：
+------------------------------
+
+方法A - 使用修复后的文件：
+1. 使用 complete_agent_system_fixed.py
+2. 运行：python run_agent_system.py
+
+方法B - 最小化运行：
+1. 运行：python minimal_runner.py
+
+
+需要的文件清单：
+---------------
+✅ fix_and_run.py         - 一键修复脚本（最重要）
+✅ complete_agent_system_fixed.py - 修复后的完整系统
+✅ run_agent_system.py    - 简单启动器
+✅ minimal_runner.py      - 最小化运行器
+✅ auto_setup.py          - 自动设置脚本
+
+
+常见问题解决：
+-------------
+
+Q: 提示缺少numpy？
+A: 运行: pip install numpy
+
+Q: Python版本错误？
+A: 需要Python 3.7或更高版本
+
+Q: 想要完整功能？
+A: 设置环境变量:
+   export OPENAI_API_KEY="你的密钥"
+
+Q: Windows用户？
+A: 使用命令: python fix_and_run.py
+
+
+还是不行？
+---------
+1. 确保所有.py文件在同一个文件夹
+2. 确保Python版本 >= 3.7
+3. 尝试: python -m pip install numpy aiohttp
+
+
+记住：最简单的方法就是运行 fix_and_run.py ！

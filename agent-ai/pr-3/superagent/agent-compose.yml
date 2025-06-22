@@ -1,0 +1,216 @@
+# Docker Compose for Agent Collaboration System
+version: '3.8'
+
+services:
+  # 主Agent系统
+  agent-system:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agent-system-main
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+      - SMTP_SERVER=${SMTP_SERVER}
+      - EMAIL_ADDRESS=${EMAIL_ADDRESS}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+    ports:
+      - "8000:8000"  # API服务器
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./workspace:/app/workspace
+    depends_on:
+      - redis
+      - rabbitmq
+    networks:
+      - agent-network
+    restart: unless-stopped
+    command: python agent_collaboration_runner.py --api-only --config /app/config/production.json
+
+  # 扩展工具服务
+  extended-tools:
+    build:
+      context: .
+      dockerfile: Dockerfile.tools
+    container_name: agent-extended-tools
+    environment:
+      - SYSTEM_URL=http://agent-system:8000
+    ports:
+      - "8001:8001"
+    depends_on:
+      - agent-system
+    networks:
+      - agent-network
+    restart: unless-stopped
+    command: python extended_tools.py --mode standalone --port 8001
+
+  # Redis缓存和消息传递
+  redis:
+    image: redis:7-alpine
+    container_name: agent-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - agent-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+
+  # RabbitMQ消息队列
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: agent-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"  # 管理界面
+    environment:
+      - RABBITMQ_DEFAULT_USER=agent
+      - RABBITMQ_DEFAULT_PASS=agent123
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+  # Prometheus监控
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: agent-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - agent-network
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  # Grafana仪表板
+  grafana:
+    image: grafana/grafana:latest
+    container_name: agent-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+  # Nginx反向代理（可选）
+  nginx:
+    image: nginx:alpine
+    container_name: agent-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - agent-system
+      - extended-tools
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  agent-network:
+    driver: bridge
+
+# Dockerfile for main system
+# 创建文件: Dockerfile
+---
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制依赖文件
+COPY requirements.txt .
+
+# 安装Python依赖
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 复制源代码
+COPY complete_agent_system.py .
+COPY extended_tools.py .
+COPY system_integration.py .
+COPY agent_collaboration_runner.py .
+
+# 创建必要的目录
+RUN mkdir -p /app/data /app/logs /app/workspace /app/config
+
+# 设置环境变量
+ENV PYTHONUNBUFFERED=1
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:8000/status || exit 1
+
+# 默认命令
+CMD ["python", "agent_collaboration_runner.py"]
+
+# Dockerfile.tools for extended tools
+# 创建文件: Dockerfile.tools
+---
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制依赖文件
+COPY requirements.txt .
+
+# 安装Python依赖（只安装扩展工具需要的）
+RUN pip install --no-cache-dir \
+    aiohttp \
+    yfinance \
+    googletrans \
+    qrcode[pil] \
+    beautifulsoup4 \
+    pandas \
+    numpy
+
+# 复制扩展工具代码
+COPY extended_tools.py .
+
+# 设置环境变量
+ENV PYTHONUNBUFFERED=1
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:8001/health || exit 1
+
+# 默认命令
+CMD ["python", "extended_tools.py", "--mode", "standalone"]

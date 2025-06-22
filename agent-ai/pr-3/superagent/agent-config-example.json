@@ -1,0 +1,204 @@
+{
+  "system": {
+    "enable_all_frameworks": true,
+    "safety_threshold": 0.95,
+    "openai_model": "gpt-4-turbo-preview",
+    "anthropic_model": "claude-3-opus-20240229",
+    "max_concurrent_tasks": 10,
+    "task_timeout": 300,
+    "memory_limit_mb": 4096
+  },
+  
+  "api_server": {
+    "enabled": true,
+    "port": 8000,
+    "host": "0.0.0.0",
+    "cors_origins": ["http://localhost:3000", "https://yourdomain.com"],
+    "rate_limit": {
+      "enabled": true,
+      "requests_per_minute": 60,
+      "requests_per_hour": 1000
+    },
+    "authentication": {
+      "enabled": false,
+      "type": "bearer",
+      "tokens": ["your-secret-token-1", "your-secret-token-2"]
+    }
+  },
+  
+  "communication": {
+    "redis": {
+      "enabled": true,
+      "host": "redis",
+      "port": 6379,
+      "password": null,
+      "db": 0,
+      "decode_responses": true,
+      "pool_size": 10,
+      "timeout": 5
+    },
+    "rabbitmq": {
+      "enabled": true,
+      "url": "amqp://agent:agent123@rabbitmq:5672/",
+      "exchange": "agent_exchange",
+      "queue_prefix": "agent_",
+      "prefetch_count": 10
+    }
+  },
+  
+  "extended_tools": {
+    "enabled": true,
+    "standalone_port": 8001,
+    "tools": {
+      "web_search": {
+        "enabled": true,
+        "max_results": 10,
+        "timeout": 30
+      },
+      "code_execution": {
+        "enabled": true,
+        "timeout": 60,
+        "memory_limit_mb": 512,
+        "allowed_imports": [
+          "math", "statistics", "itertools", "collections",
+          "datetime", "json", "re", "numpy", "pandas",
+          "matplotlib", "seaborn", "scikit-learn"
+        ]
+      },
+      "file_operation": {
+        "enabled": true,
+        "workspace_path": "/app/workspace",
+        "max_file_size_mb": 100
+      },
+      "data_analysis": {
+        "enabled": true,
+        "supported_formats": ["csv", "json", "xlsx", "parquet"]
+      },
+      "stock_analysis": {
+        "enabled": true,
+        "cache_duration_minutes": 15
+      },
+      "email": {
+        "enabled": false,
+        "smtp_server": "smtp.gmail.com",
+        "smtp_port": 587,
+        "use_tls": true
+      },
+      "translation": {
+        "enabled": true,
+        "default_target_language": "en"
+      },
+      "qrcode": {
+        "enabled": true,
+        "default_size": 10,
+        "default_border": 4
+      }
+    }
+  },
+  
+  "agents": {
+    "research_agent": {
+      "enabled": true,
+      "max_search_depth": 3,
+      "sources_per_search": 5,
+      "summarization_model": "gpt-3.5-turbo"
+    },
+    "code_agent": {
+      "enabled": true,
+      "languages": ["python", "javascript", "java", "go", "rust"],
+      "testing_enabled": true,
+      "linting_enabled": true
+    },
+    "analysis_agent": {
+      "enabled": true,
+      "visualization_enabled": true,
+      "statistical_tests": ["t-test", "anova", "chi-square", "correlation"]
+    }
+  },
+  
+  "memory": {
+    "vector_db": {
+      "type": "faiss",
+      "dimension": 1536,
+      "index_type": "IVF",
+      "nlist": 100,
+      "nprobe": 10
+    },
+    "cache": {
+      "enabled": true,
+      "ttl_seconds": 3600,
+      "max_entries": 10000
+    },
+    "persistence": {
+      "enabled": true,
+      "checkpoint_interval_seconds": 300,
+      "backup_path": "/app/data/backups"
+    }
+  },
+  
+  "monitoring": {
+    "metrics": {
+      "enabled": true,
+      "export_interval": 15,
+      "prometheus_port": 9091
+    },
+    "logging": {
+      "level": "INFO",
+      "format": "json",
+      "file": "/app/logs/agent_system.log",
+      "max_size_mb": 100,
+      "backup_count": 5
+    },
+    "tracing": {
+      "enabled": false,
+      "sample_rate": 0.1,
+      "otlp_endpoint": "http://localhost:4317"
+    }
+  },
+  
+  "scenarios": {
+    "auto_run": [],
+    "available": [
+      "research_and_report",
+      "data_pipeline",
+      "code_review",
+      "market_analysis"
+    ],
+    "custom_scenarios_path": "/app/config/scenarios/"
+  },
+  
+  "safety": {
+    "content_filtering": {
+      "enabled": true,
+      "block_harmful_content": true,
+      "sensitive_data_detection": true
+    },
+    "resource_limits": {
+      "max_tokens_per_request": 4000,
+      "max_file_operations_per_task": 100,
+      "max_network_requests_per_task": 50
+    },
+    "audit": {
+      "enabled": true,
+      "log_all_operations": true,
+      "retention_days": 30
+    }
+  },
+  
+  "optimization": {
+    "batching": {
+      "enabled": true,
+      "batch_size": 10,
+      "batch_timeout_ms": 100
+    },
+    "caching": {
+      "llm_responses": true,
+      "tool_results": true,
+      "embeddings": true
+    },
+    "parallel_execution": {
+      "enabled": true,
+      "max_workers": 4
+    }
+  }
+}

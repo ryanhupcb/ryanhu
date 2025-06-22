@@ -1,0 +1,118 @@
+openapi: 3.0.0
+info:
+  title: Agent API
+  description: API for AI agent system
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@agent.ai
+
+servers:
+  - url: https://api.agent.ai/v1
+    description: Production server
+
+paths:
+  /agents:
+    get:
+      summary: List all agents
+      responses:
+        '200':
+          description: A list of agents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Agent'
+        '500':
+          description: Internal server error
+    post:
+      summary: Create a new agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentConfig'
+      responses:
+        '201':
+          description: Agent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '400':
+          description: Invalid input
+
+  /agents/{agentId}:
+    get:
+      summary: Get agent by ID
+      parameters:
+        - in: path
+          name: agentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+    delete:
+      summary: Delete an agent
+      parameters:
+        - in: path
+          name: agentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Agent deleted
+        '404':
+          description: Agent not found
+
+components:
+  schemas:
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive, error]
+        createdAt:
+          type: string
+          format: date-time
+
+    AgentConfig:
+      type: object
+      required:
+        - name
+        - tools
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        tools:
+          type: array
+          items:
+            type: string
+        maxRetries:
+          type: integer
+          default: 3
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-KEY
+
+security:
+  - ApiKeyAuth: []
